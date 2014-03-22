@@ -1,0 +1,14 @@
+# copy this to .ssh_docker in your home directory
+# and edit it appropriately
+
+# gateway host, this should be running your docker containers
+gateway="10.1.2.1"
+
+# identity file to ssh to the gatewayhost
+identity="/home/ME_ME_ME/.ssh/id_rsa_docker_stuffs"
+
+# remote user on the docker containers
+remoteuser="root"
+
+# remote password on the docker containers
+remotepassword="testing"
