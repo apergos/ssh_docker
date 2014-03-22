@@ -6,6 +6,17 @@
 # proxy host
 
 usage() {
+    case $0 in
+	scp*)
+            usage_scp
+            ;;
+	ssh*|*)
+	    usage_ssh
+            ;;
+    esac
+}
+
+usage_ssh() {
     echo "usage: $0 [options] hostspec [command]"
     echo
     echo "hostspec consists of [user@]container-name"
@@ -18,6 +29,29 @@ usage() {
     echo "-RP  remote password for container"
     echo
     echo "example: $0 puppet-mar14 ls"
+    echo
+    echo "config file may be placed in $HOME/.ssh_docker with definitions for gateway, remote"
+    echo "user/password, identity file for ssh to gateway."
+    exit 1
+}
+
+usage_scp() {
+    echo "usage: $0 container [options] [user@host:]path [user@host:]path [user@host:]path..."
+    echo "         where container is the container name of the remote host (not the container id)"
+    echo "         and the string 'container' is given for the host in any of the file specifications"
+    echo "         if you want to copy to-from the container for that file"
+    echo
+    echo "options may be scp options or one of the below:"
+    echo
+    echo "-ID  path to identity file to use for connecting to gateway (server running containers)"
+    echo "-GW  ip or hostname of gateway"
+    echo "-RU  remote user on container"
+    echo "-RP  remote password for container"
+    echo
+    echo "example: $0 puppet-mar14 -r /home/bobdole/junk root@container:/root/incoming/"
+    echo
+    echo "note that you will be prompted for container password (if needed) but told that it's"
+    echo "for 'localhost'.  This is a lie, just like the cake."
     echo
     echo "config file may be placed in $HOME/.ssh_docker with definitions for gateway, remote"
     echo "user/password, identity file for ssh to gateway."
@@ -139,15 +173,109 @@ add_identity() {
     fi
 }
 
-get_ip() {
-    IP=`ssh $gateway -i "$identity" docker inspect '-format={{.NetworkSettings.IPAddress}}' "$host"`
+get_container_ip() {
+    IP=`ssh $gateway -i "$identity" docker inspect '-format={{.NetworkSettings.IPAddress}}' "$container"`
     if [ -z "$IP" ]; then
         echo "Error, no ip found, exiting"
         exit 1
     fi
 }
 
-process_args() {
+parse_filespec() {
+    user=""
+    path=""
+    result=`expr index $filespec '@'`
+    if [ $result -ne "0" ]; then
+        host_start=$result
+        user_length=$(( ${result} -1 ))
+        #${string:position:length}
+        user=${filespec:0:${user_length}}
+        host=${filespec:$host_start}
+    else
+        host=$filespec
+    fi
+    result=`expr index $host ':'`
+    if [ $result -ne "0" ]; then
+        path_start=$result
+        host_length=$(( ${result} -1 ))
+        path=${host:${path_start}}
+        host=${host:0:${host_length}}
+    fi
+}
+
+assemble_filespec() {
+    if [ "$host" == 'container' ]; then
+        user=$remoteuser
+        host='localhost'
+    fi
+
+    if [ -n "$user" ]; then
+       filespec="${user}@${host}"
+    else
+       filespec="$host"
+    fi
+    if [ -n "$path" ]; then
+       filespec="${filespec}:${path}"
+    fi
+}
+
+get_container_name() {
+    if [ -z "${args[0]}" ]; then
+        usage
+    fi
+    case $1 in
+        -*)
+            usage
+            ;;
+         *)
+            container=${args[0]}
+            ;;
+    esac
+}
+
+skip_args() {
+    for (( i=1; i<${#args[@]}; i++ ))
+    do
+        case ${args[$i]} in
+            # scp [-12346BCpqrv]...
+            -1|-2|-3|-4|-6|-B|-C|-p|-q|-r|-v)
+                ;;
+            -*)
+                # arg length of 2 means value is the next arg
+                # so skip it too                
+                arg=${args[$i]}
+                if [ "${#arg}" -eq "2" ]; then
+                    (( i++ ))
+                fi
+                ;;
+            *)
+                options_count=$(( $i - 1 ))
+                break;
+                ;;
+        esac
+    done
+    options=(${args[@]:1:${options_count}})
+}
+
+process_args_scp() {
+   files=()
+   for j in `seq $i $(( ${#args[@]} -1 ))`; do
+         case ${args[$j]} in
+            -*)
+                usage
+                ;;
+            *)
+                filespec="${args[$j]}"
+                ind=$j
+                parse_filespec
+                assemble_filespec
+                files+=($filespec)
+                ;;
+        esac
+    done
+}
+
+process_args_ssh() {
     for (( i=0; i<${#args[@]}; i++ ))
     do
         case ${args[$i]} in
@@ -162,18 +290,18 @@ process_args() {
                 fi
                 ;;
             *)
-                host="${args[$i]}"
+                container="${args[$i]}"
                 ind=$i
                 break
                 ;;
         esac
     done
-    if [ -z "$host" ]; then
+    if [ -z "$container" ]; then
         usage
     fi
 }
 
-function do_ssh {
+do_ssh() {
     command="ssh -q -i ${identity} -a -W ${IP}:22 $gateway"
     prev=$ind
     next=$(( $ind + 1 ))
@@ -181,10 +309,31 @@ function do_ssh {
     sshpass -p "$remotepassword" ssh  "-t" "-t" "-l" "$remoteuser" "-o" "ProxyCommand ${command}" ${args[@]:0:$prev} ${IP} ${args[@]:$next}
 }
 
-function cleanup {
+do_ssh_proxy() {
+    # want to do this in a separate process
+    ssh -t -t -L 12345:${IP}:22 $gateway
+    # after this I see
+    # Last login: Sat Mar 22 07:40:33 2014 from 192.168.1.2
+    # and I'd like not to; fix?
+}
+
+do_scp() {
+#    scp  -P 12345 ${options[*]} ${files[*]}
+    sshpass -p $remotepassword scp  -P 12345 ${options[*]} ${files[*]}
+}
+
+cleanup() {
     unset SSH_AUTH_SOCK
     unset SSH_AGENT_PID
+    #kill the ssh proxy session if we have one
+    if [ -n "$proxypid" ]; then
+        pkill -P "$proxypid" ssh
+    fi
 }
+
+
+###################
+# main
 
 setup_defaults
 get_overrides $@
@@ -192,7 +341,22 @@ check_missing_config_args
 start_ssh_agent
 setup_environment
 add_identity
-process_args
-get_ip
-do_ssh
+
+case $0 in
+    scp*)
+	get_container_name
+	get_container_ip
+	skip_args
+	process_args_scp
+	do_ssh_proxy &
+	proxypid=$!
+	sleep 2 # wait for ssl proxy to get setup, just in case
+	do_scp
+	;;
+    ssh*|*)
+	process_args_ssh
+	get_container_ip
+	do_ssh
+	;;
+esac
 cleanup

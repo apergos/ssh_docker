@@ -5,9 +5,8 @@ ssh/scp scripts for bouncing through docker server to containers from elsewhere
 
 I needed some scripts to let me tunnel through my docker server to
 the containers, from my laptop.  It was getting especially annoying
-doing two hop copies manually.  So here's some crappy bash scripts.
-Run without args to get usage. Yeah I should make them one script
-etc, blah blah blah.  Whatevs.
+doing two hop copies manually.  So here's a crappy bash script.
+Run without args to get usage.
 
 If you alway use the same gateway, remote user, etc., put them in a config
 file in ~/.ssh_docker, see ssh_docker_config.sample for more info.
