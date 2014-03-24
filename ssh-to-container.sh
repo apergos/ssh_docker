@@ -6,7 +6,7 @@
 # proxy host
 
 usage() {
-    case $0 in
+    case $myname in
 	scp*)
             usage_scp
             ;;
@@ -335,6 +335,7 @@ cleanup() {
 ###################
 # main
 
+myname=`basename $0`
 setup_defaults
 get_overrides $@
 check_missing_config_args
@@ -342,7 +343,7 @@ start_ssh_agent
 setup_environment
 add_identity
 
-case $0 in
+case $myname in
     scp*)
 	get_container_name
 	get_container_ip
