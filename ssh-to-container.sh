@@ -174,7 +174,7 @@ add_identity() {
 }
 
 get_container_ip() {
-    IP=`ssh $gateway -i "$identity" docker inspect '-format={{.NetworkSettings.IPAddress}}' "$container"`
+    IP=`ssh $gateway -i "$identity" docker inspect '--format={{.NetworkSettings.IPAddress}}' "$container"`
     if [ -z "$IP" ]; then
         echo "Error, no ip found, exiting"
         exit 1
@@ -306,7 +306,7 @@ do_ssh() {
     prev=$ind
     next=$(( $ind + 1 ))
     # without -t -t it whines for scp: Pseudo-terminal will not be allocated because stdin is not a terminal.
-    sshpass -p "$remotepassword" ssh  "-t" "-t" "-l" "$remoteuser" "-o" "ProxyCommand ${command}" ${args[@]:0:$prev} ${IP} ${args[@]:$next}
+    sshpass -p "$remotepassword" ssh  "-o" "StrictHostKeyChecking=no" "-t" "-t" "-l" "$remoteuser" "-o" "ProxyCommand ${command}" ${args[@]:0:$prev} ${IP} ${args[@]:$next}
 }
 
 do_ssh_proxy() {
@@ -319,7 +319,7 @@ do_ssh_proxy() {
 
 do_scp() {
 #    scp  -P 12345 ${options[*]} ${files[*]}
-    sshpass -p $remotepassword scp  -P 12345 ${options[*]} ${files[*]}
+    sshpass -p $remotepassword scp  "-o" "StrictHostKeyChecking=no" -P 12345 ${options[*]} ${files[*]}
 }
 
 cleanup() {
